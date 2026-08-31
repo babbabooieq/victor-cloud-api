@@ -11,14 +11,18 @@ enrollment-token table rows, the auth placeholder note).
 
 ## The one thing that actually matters: `deps.py`
 
-`get_current_account_id()` trusts a caller-supplied `X-Account-Id`
-header with **zero verification**. This is a deliberate placeholder,
-not an oversight — real auth (Cognito, proposed but not confirmed, see
-the design doc §3/§8) will replace it, and every CRUD route depends on
-this function returning a verified account_id, not on how it's
-verified. **Do not deploy this behind a public endpoint as-is** — any
-caller can currently claim to be any account. If you're touching auth,
-read the design doc's §3 and §8 first.
+`get_current_account_id()` is real Cognito auth now, deployed and
+proven end to end. It extracts the `sub` claim from
+`request.scope["aws.event"]` — the claim API Gateway's Cognito JWT
+authorizer already validated before Lambda ever ran — and fails closed
+(401) if that context exists but the claim doesn't. There is a
+local-dev fallback (an `X-Account-Id` header) but it only activates
+behind an explicit `VICTOR_ALLOW_INSECURE_LOCAL_AUTH=1` opt-in that
+would never be set in the real Lambda's environment — a misconfigured
+authorizer in production fails loudly (500, "no context found"), it
+never silently becomes insecure. If you're touching auth, read
+`test_deps.py` first — it tests this fail-closed behavior directly, not
+just indirectly through whatever the CRUD tests happen to exercise.
 
 Collector-facing routes (`enroll`, `heartbeat`, `tasks`,
 `observations`) are not affected by this — they use
@@ -85,11 +89,12 @@ executables directly instead of activating.
 
 ## What's not built yet
 
-- Cognito (or whatever human auth ends up being) — see the `deps.py`
-  warning above.
-- Actual AWS deployment — this has been built and tested locally only.
-  `docs/cloud-api-design.md` §6 has the deployment plan (DynamoDB table,
-  Lambda, API Gateway, `api.victorrecon.com`) once it's time.
+- `api.victorrecon.com` as a custom domain — live today at its raw API
+  Gateway URL, cert requested, pending one DNS record. See
+  `DEPLOYMENT_STATUS.md` §4 in victor-recon-console.
+- DynamoDB TTL on enrollment tokens — used/expired ones persist forever
+  instead of being auto-cleaned. Not a security issue (already unusable
+  once consumed or expired), just untidy.
 - Deep AI triage on uploaded observations (`BACKLOG.md` M2 in
   victor-recon-console) — `/observations` currently just stores what's
   uploaded, deliberately not classifying it. See design doc §5 for why

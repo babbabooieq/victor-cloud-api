@@ -6,12 +6,15 @@ side of the collector's wire protocol. **Closed source**, unlike
 [`KILLER_FEATURES.md` §4.9](https://github.com/babbabooieq/victor-recon-console/blob/main/KILLER_FEATURES.md)
 in victor-recon-console for why the open-core split lands here.
 
-> **Status: v0.1 built and tested, not yet deployed.** The full
-> collector wire protocol (enroll, heartbeat, tasks, observations) and
-> the web app's CRUD contract (findings, sessions, targets) are real —
-> 30/30 tests passing. Human-user auth is a deliberately isolated
-> placeholder pending a Cognito decision — see
-> [`AGENTS.md`](AGENTS.md). Not yet live on real AWS.
+> **Status: v0.1 live in production.** The full collector wire protocol
+> (enroll, heartbeat, tasks, observations) and the web app's CRUD
+> contract (findings, sessions, targets) are real — 40/40 tests passing.
+> Human auth is real Cognito, not a placeholder, with an API Gateway JWT
+> authorizer in front of every web-app route. Deployed to AWS and proven
+> end to end through the actual browser sign-up flow, not just tests —
+> see `DEPLOYMENT_STATUS.md` in victor-recon-console for the full
+> account, including two real bugs (missing CORS, missing account
+> auto-provisioning) that only surfaced against a real browser.
 
 ## What this is
 
@@ -33,12 +36,15 @@ GET  /v1/collectors/tasks
 POST /v1/sessions/{session_id}/observations
 ```
 
-Web app CRUD (`X-Account-Id` header — placeholder auth, see `AGENTS.md`):
+Web app CRUD (real Cognito JWT auth in production; a local-dev-only
+header fallback exists behind an explicit opt-in — see `AGENTS.md`):
 
 ```
-GET/POST   /v1/findings        PATCH /v1/findings/{id}
-GET/POST   /v1/sessions        PATCH /v1/sessions/{id}
+GET/POST   /v1/findings              PATCH /v1/findings/{id}
+GET/POST   /v1/sessions              PATCH /v1/sessions/{id}
 GET/POST   /v1/targets
+POST       /v1/accounts/me                          (idempotent — provisions the account)
+POST       /v1/collectors/enrollment-tokens         ("Add a Collector" button)
 ```
 
 ## Install
