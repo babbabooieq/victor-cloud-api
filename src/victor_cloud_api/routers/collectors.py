@@ -12,10 +12,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from victor_cloud_api.auth import (
+    ENROLLMENT_TOKEN_TTL_SECONDS,
     consume_enrollment_token,
     generate_collector_credential,
     has_capacity,
     hash_secret,
+    issue_enrollment_token,
     resolve_collector_by_credential,
 )
 from victor_cloud_api.db import (
@@ -25,6 +27,7 @@ from victor_cloud_api.db import (
     get_table,
     gsi2_cred_hash_pk,
 )
+from victor_cloud_api.deps import get_current_account_id
 from victor_cloud_api.models import Collector
 
 router = APIRouter(prefix="/v1/collectors", tags=["collectors"])
@@ -46,6 +49,26 @@ def get_authenticated_collector(authorization: str = Header(...)) -> dict:
     if collector is None:
         raise HTTPException(status_code=401, detail="Invalid or revoked collector credential")
     return collector
+
+
+class EnrollmentTokenResponse(BaseModel):
+    token: str
+    expires_in_seconds: int
+
+
+@router.post("/enrollment-tokens", response_model=EnrollmentTokenResponse)
+def create_enrollment_token(
+    account_id: str = Depends(get_current_account_id),
+) -> EnrollmentTokenResponse:
+    """Cognito-authenticated (a human, not a collector) - the "Add a
+    Collector" button's backing endpoint. Generates the one-time token a
+    collector then exchanges via POST /enroll. Was previously only an
+    internal function (issue_enrollment_token); this is the real HTTP
+    entry point the web app needs to call it, added once the frontend
+    integration actually needed it rather than speculatively.
+    """
+    token = issue_enrollment_token(get_table(), account_id)
+    return EnrollmentTokenResponse(token=token, expires_in_seconds=ENROLLMENT_TOKEN_TTL_SECONDS)
 
 
 class EnrollRequest(BaseModel):

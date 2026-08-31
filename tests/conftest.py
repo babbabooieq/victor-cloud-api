@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -7,6 +8,11 @@ from fastapi.testclient import TestClient
 from moto import mock_aws
 
 from victor_cloud_api import db
+
+# Tests run outside API Gateway, so they use deps.py's explicit local-dev
+# opt-in (X-Account-Id header) rather than real Cognito JWT claims. This
+# flag would never be set in the real Lambda's environment.
+os.environ["VICTOR_ALLOW_INSECURE_LOCAL_AUTH"] = "1"
 
 
 @pytest.fixture
