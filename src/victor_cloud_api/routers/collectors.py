@@ -1,0 +1,178 @@
+"""Collector-facing wire protocol - docs/collector-design.md §7 in
+victor-recon-console. enroll, heartbeat, and tasks are real; observations
+(deep AI triage's entry point) is the one piece still to add.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel
+
+from victor_cloud_api.auth import (
+    consume_enrollment_token,
+    generate_collector_credential,
+    has_capacity,
+    hash_secret,
+    resolve_collector_by_credential,
+)
+from victor_cloud_api.db import (
+    account_pk,
+    collector_account_sk,
+    collector_pk,
+    get_table,
+    gsi2_cred_hash_pk,
+)
+from victor_cloud_api.models import Collector
+
+router = APIRouter(prefix="/v1/collectors", tags=["collectors"])
+
+MIN_SUPPORTED_VERSION = "0.1.0"
+
+
+def _bearer_token(authorization: str) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Expected 'Authorization: Bearer <token>'")
+    return authorization.removeprefix("Bearer ").strip()
+
+
+def get_authenticated_collector(authorization: str = Header(...)) -> dict:
+    """Shared auth dependency for every collector-facing route after
+    enroll - one GSI2 lookup, no session state."""
+    token = _bearer_token(authorization)
+    collector = resolve_collector_by_credential(get_table(), token)
+    if collector is None:
+        raise HTTPException(status_code=401, detail="Invalid or revoked collector credential")
+    return collector
+
+
+class EnrollRequest(BaseModel):
+    hostname: str
+    os: str
+    arch: str
+    version: str
+
+
+class EnrollResponse(BaseModel):
+    collector_id: str
+    credential: str
+    control_plane_id: str
+
+
+@router.post("/enroll", response_model=EnrollResponse)
+def enroll(body: EnrollRequest, authorization: str = Header(...)) -> EnrollResponse:
+    token = _bearer_token(authorization)
+    table = get_table()
+
+    account_id = consume_enrollment_token(table, token)
+    if account_id is None:
+        raise HTTPException(
+            status_code=401, detail="Enrollment token is invalid, expired, or already used"
+        )
+
+    account = table.get_item(Key={"PK": account_pk(account_id), "SK": "META"}).get("Item")
+    if account is None:
+        # The token was valid but its account is gone - a data integrity
+        # problem, not a client error.
+        raise HTTPException(status_code=500, detail="Enrollment token referenced a missing account")
+
+    tier = account.get("tier", "community")
+    if not has_capacity(table, account_id, tier):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Collector limit reached for the '{tier}' tier. Upgrade or remove a collector.",
+        )
+
+    collector = Collector(
+        account_id=account_id,
+        hostname=body.hostname,
+        os=body.os,
+        arch=body.arch,
+        version=body.version,
+    )
+    credential = generate_collector_credential()
+
+    table.put_item(
+        Item={
+            "PK": account_pk(account_id),
+            "SK": collector_account_sk(collector.collector_id),
+            "gsi2pk": gsi2_cred_hash_pk(hash_secret(credential)),
+            **collector.model_dump(),
+        }
+    )
+
+    return EnrollResponse(
+        collector_id=collector.collector_id,
+        credential=credential,
+        control_plane_id=account_id,
+    )
+
+
+class HeartbeatRequest(BaseModel):
+    version: str
+    status: Literal["idle", "running"]
+
+
+class HeartbeatResponse(BaseModel):
+    min_supported_version: str
+
+
+@router.post("/heartbeat", response_model=HeartbeatResponse)
+def heartbeat(
+    body: HeartbeatRequest, collector: dict = Depends(get_authenticated_collector)
+) -> HeartbeatResponse:
+    table = get_table()
+    table.update_item(
+        Key={"PK": collector["PK"], "SK": collector["SK"]},
+        UpdateExpression="SET #status = :status, version = :version, last_heartbeat = :now",
+        ExpressionAttributeNames={"#status": "status"},
+        ExpressionAttributeValues={
+            ":status": body.status,
+            ":version": body.version,
+            ":now": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    # Never force-updates the collector - it's the operator's call. See
+    # collector-design.md §7.2.
+    return HeartbeatResponse(min_supported_version=MIN_SUPPORTED_VERSION)
+
+
+class TaskOut(BaseModel):
+    task_id: str
+    session_id: str
+    plugin: str
+    target: str
+    safe_mode: bool
+
+
+class TasksResponse(BaseModel):
+    tasks: list[TaskOut]
+
+
+@router.get("/tasks", response_model=TasksResponse)
+def get_tasks(collector: dict = Depends(get_authenticated_collector)) -> TasksResponse:
+    table = get_table()
+    resp = table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+        FilterExpression="#status = :pending",
+        ExpressionAttributeNames={"#status": "status"},
+        ExpressionAttributeValues={
+            ":pk": collector_pk(collector["collector_id"]),
+            ":prefix": "TASK#",
+            ":pending": "pending",
+        },
+    )
+    return TasksResponse(
+        tasks=[
+            TaskOut(
+                task_id=item["task_id"],
+                session_id=item["session_id"],
+                plugin=item["plugin"],
+                target=item["target"],
+                safe_mode=item["safe_mode"],
+            )
+            for item in resp.get("Items", [])
+        ]
+    )
