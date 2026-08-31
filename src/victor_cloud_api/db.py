@@ -63,6 +63,14 @@ def task_sk(task_id: str) -> str:
     return f"TASK#{task_id}"
 
 
+def observation_sk(session_id: str, observation_id: str) -> str:
+    # Mirrors the MSG#<session>#<msg> pattern - session-scoped, chronological
+    # by insertion. Not in cloud-api-design.md §2's original table (a real
+    # gap - RawObservation was specified in §5 but never given a key shape);
+    # fixed there alongside this.
+    return f"OBS#{session_id}#{observation_id}"
+
+
 def gsi1_session_pk(session_id: str) -> str:
     return f"SESSION#{session_id}"
 

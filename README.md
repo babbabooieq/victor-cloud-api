@@ -6,12 +6,12 @@ side of the collector's wire protocol. **Closed source**, unlike
 [`KILLER_FEATURES.md` §4.9](https://github.com/babbabooieq/victor-recon-console/blob/main/KILLER_FEATURES.md)
 in victor-recon-console for why the open-core split lands here.
 
-> **Status: early v0.1.** `POST /v1/collectors/enroll` is real:
-> one-time-token exchange, per-tier collector-count enforcement, and a
-> credential that resolves back to its collector via one DynamoDB query.
-> Everything else in [`docs/cloud-api-design.md`](https://github.com/babbabooieq/victor-recon-console/blob/main/docs/cloud-api-design.md)'s
-> §7 MVP checklist (heartbeat, tasks, observations, the web app's CRUD
-> contract) isn't built yet.
+> **Status: v0.1 built and tested, not yet deployed.** The full
+> collector wire protocol (enroll, heartbeat, tasks, observations) and
+> the web app's CRUD contract (findings, sessions, targets) are real —
+> 30/30 tests passing. Human-user auth is a deliberately isolated
+> placeholder pending a Cognito decision — see
+> [`AGENTS.md`](AGENTS.md). Not yet live on real AWS.
 
 ## What this is
 
@@ -21,6 +21,25 @@ already assume exists — see `docs/system-architecture.md` in the console
 repo for the three-layer picture. Full design (DynamoDB schema, auth,
 API surface, deployment) is in `docs/cloud-api-design.md`; this README
 only covers what's actually built.
+
+## API surface
+
+Collector-facing (bearer credential auth — `resolve_collector_by_credential`):
+
+```
+POST /v1/collectors/enroll
+POST /v1/collectors/heartbeat
+GET  /v1/collectors/tasks
+POST /v1/sessions/{session_id}/observations
+```
+
+Web app CRUD (`X-Account-Id` header — placeholder auth, see `AGENTS.md`):
+
+```
+GET/POST   /v1/findings        PATCH /v1/findings/{id}
+GET/POST   /v1/sessions        PATCH /v1/sessions/{id}
+GET/POST   /v1/targets
+```
 
 ## Install
 

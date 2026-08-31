@@ -8,10 +8,14 @@ from __future__ import annotations
 from fastapi import FastAPI
 from mangum import Mangum
 
-from victor_cloud_api.routers import collectors
+from victor_cloud_api.routers import collectors, findings, observations, sessions, targets
 
 app = FastAPI(title="VICTOR Recon Cloud API")
 app.include_router(collectors.router)
+app.include_router(observations.router)
+app.include_router(findings.router)
+app.include_router(sessions.router)
+app.include_router(targets.router)
 
 
 @app.get("/healthz")
