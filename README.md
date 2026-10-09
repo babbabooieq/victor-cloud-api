@@ -13,15 +13,10 @@ side of the collector's wire protocol. **Closed source**, unlike
 [`KILLER_FEATURES.md` §4.9](https://github.com/babbabooieq/victor-recon-console/blob/main/KILLER_FEATURES.md)
 in victor-recon-console for why the open-core split lands here.
 
-> **Status: v0.1 live in production.** The full collector wire protocol
-> (enroll, heartbeat, tasks, observations) and the web app's CRUD
-> contract (findings, sessions, targets) are real — 40/40 tests passing.
-> Human auth is real Cognito, not a placeholder, with an API Gateway JWT
-> authorizer in front of every web-app route. Deployed to AWS and proven
-> end to end through the actual browser sign-up flow, not just tests —
-> see `DEPLOYMENT_STATUS.md` in victor-recon-console for the full
-> account, including two real bugs (missing CORS, missing account
-> auto-provisioning) that only surfaced against a real browser.
+Current source includes 71 passing local tests covering task leases, authorization,
+immutable uploads and account isolation. Historical production validation applies to
+v0.1; this coordinated update still requires API Gateway route configuration and staging
+validation. See the console's `DEPLOYMENT_STATUS.md` for historical evidence.
 
 ## What this is
 
@@ -40,6 +35,8 @@ Collector-facing (bearer credential auth — `resolve_collector_by_credential`):
 POST /v1/collectors/enroll
 POST /v1/collectors/heartbeat
 GET  /v1/collectors/tasks
+POST /v1/collectors/tasks/{task_id}/claim
+POST /v1/collectors/tasks/{task_id}/result
 POST /v1/sessions/{session_id}/observations
 ```
 
@@ -50,6 +47,9 @@ header fallback exists behind an explicit opt-in — see `AGENTS.md`):
 GET/POST   /v1/findings              PATCH /v1/findings/{id}
 GET/POST   /v1/sessions              PATCH /v1/sessions/{id}
 GET/POST   /v1/targets
+GET        /v1/collectors
+GET/POST   /v1/sessions/{session_id}/tasks
+GET        /v1/sessions/{session_id}/observations
 POST       /v1/accounts/me                          (idempotent — provisions the account)
 POST       /v1/collectors/enrollment-tokens         ("Add a Collector" button)
 ```
@@ -67,8 +67,11 @@ pip install -e ".[dev]"
 ## Test
 
 ```bash
-pytest
+python -m pytest -q
 ```
+
+To include the optional collector transport contract test, first install the sibling
+collector into this environment: `pip install -e ../victor-collector`.
 
 Runs entirely against an in-memory DynamoDB via [moto](https://github.com/getmoto/moto)
 — no AWS credentials or real table needed. `db.py`'s `table_schema()` is

@@ -9,6 +9,20 @@ existed — keep it updated when you change something here, several
 things already got fixed this way: the missing `RawObservation` and
 enrollment-token table rows, the auth placeholder note).
 
+## Current execution/evidence contract
+
+Read the sibling console's `docs/live-workspace-protocol.md` before changes.
+Human reads (`GET collectors`, session tasks/observations) require Cognito claims;
+collector claims/results/uploads use hashed bearer credentials. Preserve this distinction
+in API Gateway routes. Claims are exclusive and leased; new tasks require claims,
+active exact-target authorization and expiry/plugin restrictions. Never accept completed
+evidence changes or duplicate source IDs. Partial/legacy uploads without a matching
+nonempty completion fingerprint are not finalized. Numeric JSON must stay numeric.
+Use paginated queries and explicit account/session/task/collector attribution checks.
+New code is source-tested; do not infer production rollout from a commit or push.
+The optional real collector transport integration requires the sibling collector installed
+in the API test environment: `pip install -e ../victor-collector`.
+
 ## The one thing that actually matters: `deps.py`
 
 `get_current_account_id()` is real Cognito auth now, deployed and
