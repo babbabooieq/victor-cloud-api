@@ -19,6 +19,8 @@ def validate_target(value: str) -> str:
         return value
     except ValueError:
         pass
+    if re.fullmatch(r"[0-9.-]+", host) and "-" in host:
+        raise ValueError("Numeric address ranges are not supported")
     labels = host.rstrip(".").split(".")
     if len(host) > 253 or not all(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) for label in labels):
         raise ValueError("Use a single hostname/IP; ranges, CIDRs and target lists are not supported")

@@ -27,7 +27,7 @@ def test_expired_queued_authorization_is_not_claimable(client, dynamodb_table):
     assert client.get(f"/v1/sessions/{session}/tasks", headers=account_headers(account)).json()[0]["status"] == "failed"
 
 
-@pytest.mark.parametrize("target", ["10.0.0.0/24", "10.0.0.1,10.0.0.2", "10.0.0.*", "--script=all", "https://user:secret@example.com", "example.com other.com"])
+@pytest.mark.parametrize("target", ["10.0.0.1-10", "10.0.0.0/24", "10.0.0.1,10.0.0.2", "10.0.0.*", "--script=all", "https://user:secret@example.com", "example.com other.com"])
 def test_target_lists_ranges_and_credentials_are_refused(target):
     with pytest.raises(ValueError):
         validate_target(target)
