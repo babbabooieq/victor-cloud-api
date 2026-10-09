@@ -1,5 +1,12 @@
 # victor-cloud-api
 
+> **October 2026 local update:** task claims/leases, terminal outcomes, immutable
+> attributed uploads, collector/task/observation reads and expiring exact-target
+> authorization are implemented locally. These changes have not been deployed.
+> The historical production status below describes v0.1. The coordinated release
+> contract and route authorization requirements are in the console repo's
+> `docs/live-workspace-protocol.md`.
+
 VICTOR Recon's cloud API — accounts, sessions, findings, and the server
 side of the collector's wire protocol. **Closed source**, unlike
 [victor-collector](https://github.com/musashiandy/victor-collector) — see

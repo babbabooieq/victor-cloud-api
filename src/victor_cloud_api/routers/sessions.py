@@ -10,20 +10,38 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from victor_cloud_api.db import account_pk, get_table, gsi1_session_pk, session_sk
 from victor_cloud_api.deps import get_current_account_id
 from victor_cloud_api.dynamo_utils import build_update
-from victor_cloud_api.models import Session, SessionStatus
+from victor_cloud_api.models import AuthorizationRecord, Session, SessionStatus
 
 router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 
 
 class CreateSessionRequest(BaseModel):
-    name: str
-    target: str
-    scope: str
+    name: str = Field(min_length=1, max_length=200)
+    target: str = Field(min_length=1, max_length=2048)
+    scope: str = Field(min_length=1, max_length=2000)
+    authorization: AuthorizationRecord | None = None
+
+    @model_validator(mode="after")
+    def bind_authorization(self):
+        if self.authorization:
+            if self.authorization.target != self.target or self.authorization.reference != self.scope:
+                raise ValueError("Authorization target/reference must match the session")
+            if self.authorization.expires_at <= datetime.now(timezone.utc):
+                raise ValueError("Authorization must expire in the future")
+        return self
+
+    @field_validator("name", "target", "scope")
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank")
+        return value
 
 
 class PatchSessionRequest(BaseModel):
@@ -64,7 +82,7 @@ def create_session(
     session = Session(account_id=account_id, **body.model_dump())
     table = get_table()
     table.put_item(
-        Item={"PK": account_pk(account_id), "SK": session_sk(session.id), **session.model_dump()}
+        Item={"PK": account_pk(account_id), "SK": session_sk(session.id), **session.model_dump(mode="json")}
     )
     return SessionOut(**session.model_dump(), findings=0)
 

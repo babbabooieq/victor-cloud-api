@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from victor_cloud_api.auth import (
     ENROLLMENT_TOKEN_TTL_SECONDS,
@@ -26,13 +26,22 @@ from victor_cloud_api.db import (
     collector_pk,
     get_table,
     gsi2_cred_hash_pk,
+    query_all,
 )
+from victor_cloud_api import execution
 from victor_cloud_api.deps import get_current_account_id
 from victor_cloud_api.models import Collector
 
 router = APIRouter(prefix="/v1/collectors", tags=["collectors"])
 
-MIN_SUPPORTED_VERSION = "0.1.0"
+MIN_SUPPORTED_VERSION = "0.2.0"
+
+
+@router.get("", response_model=list[Collector])
+def list_collectors(account_id: str = Depends(get_current_account_id)):
+    items = query_all(get_table(), KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+                      ExpressionAttributeValues={":pk": account_pk(account_id), ":prefix": "COLLECTOR#"})
+    return [Collector(**item) for item in items]
 
 
 def _bearer_token(authorization: str) -> str:
@@ -168,6 +177,7 @@ class TaskOut(BaseModel):
     plugin: str
     target: str
     safe_mode: bool
+    claim_required: bool = True
 
 
 class TasksResponse(BaseModel):
@@ -177,16 +187,7 @@ class TasksResponse(BaseModel):
 @router.get("/tasks", response_model=TasksResponse)
 def get_tasks(collector: dict = Depends(get_authenticated_collector)) -> TasksResponse:
     table = get_table()
-    resp = table.query(
-        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
-        FilterExpression="#status = :pending",
-        ExpressionAttributeNames={"#status": "status"},
-        ExpressionAttributeValues={
-            ":pk": collector_pk(collector["collector_id"]),
-            ":prefix": "TASK#",
-            ":pending": "pending",
-        },
-    )
+    items = execution.available_tasks(table, collector)
     return TasksResponse(
         tasks=[
             TaskOut(
@@ -196,6 +197,24 @@ def get_tasks(collector: dict = Depends(get_authenticated_collector)) -> TasksRe
                 target=item["target"],
                 safe_mode=item["safe_mode"],
             )
-            for item in resp.get("Items", [])
+            for item in items
         ]
     )
+
+
+@router.post("/tasks/{task_id}/claim")
+def claim_task(task_id: str, collector: dict = Depends(get_authenticated_collector)):
+    return execution.claim(get_table(), collector, task_id)
+
+
+class TaskResultRequest(BaseModel):
+    status: Literal["empty", "failed"]
+    lease_token: str | None = None
+    error: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/tasks/{task_id}/result")
+def task_result(task_id: str, body: TaskResultRequest, collector: dict = Depends(get_authenticated_collector)):
+    execution.finish(get_table(), collector, task_id, status=body.status,
+                     token=body.lease_token, error=body.error)
+    return {"status": body.status}

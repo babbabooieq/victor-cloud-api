@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 Severity = Literal["Info", "Low", "Medium", "High", "Critical"]
 SessionStatus = Literal["Active", "Paused", "Archived"]
@@ -43,6 +44,21 @@ class Collector(BaseModel):
     last_heartbeat: str | None = None
 
 
+class AuthorizationRecord(BaseModel):
+    version: Literal[1] = 1
+    reference: str = Field(min_length=1, max_length=2000)
+    target: str = Field(min_length=1, max_length=2048)
+    allowed_plugins: list[Literal["service-inventory", "tls-review", "http-header-audit"]] = Field(min_length=1, max_length=3)
+    expires_at: datetime
+
+    @field_validator("expires_at")
+    @classmethod
+    def timezone_required(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("Authorization expiry must include its timezone")
+        return value
+
+
 class Session(BaseModel):
     id: str = Field(default_factory=lambda: new_id("S"))
     account_id: str
@@ -51,6 +67,7 @@ class Session(BaseModel):
     scope: str
     status: SessionStatus = "Active"
     updated: str = Field(default_factory=_now)
+    authorization: AuthorizationRecord | None = None
 
 
 class TargetRow(BaseModel):
@@ -90,6 +107,18 @@ class RawObservation(BaseModel):
     raw: dict
     redacted: bool = False
 
+    @field_serializer("raw", when_used="json")
+    def serialize_raw(self, raw: dict) -> dict:
+        def convert(value):
+            if isinstance(value, Decimal):
+                return int(value) if value == value.to_integral_value() else float(value)
+            if isinstance(value, dict):
+                return {key: convert(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [convert(item) for item in value]
+            return value
+        return convert(raw)
+
 
 class Task(BaseModel):
     task_id: str = Field(default_factory=lambda: new_id("task"))
@@ -99,5 +128,12 @@ class Task(BaseModel):
     plugin: str
     target: str
     safe_mode: bool = True
-    status: Literal["pending", "completed"] = "pending"
+    status: Literal["pending", "running", "completed", "empty", "failed", "cancelled"] = "pending"
     created_at: str = Field(default_factory=_now)
+    attempts: int = 0
+    finished_at: str | None = None
+    error: str | None = None
+    observation_count: int = 0
+    requires_claim: bool = False  # Compatibility for already-queued v0.1 tasks.
+    executed_version: str | None = None
+    authorization_expires_at: str | None = None

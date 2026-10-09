@@ -23,7 +23,8 @@ def account_headers(account_id: str) -> dict:
 def create_session(client, account_id: str) -> str:
     resp = client.post(
         "/v1/sessions",
-        json={"name": "Test session", "target": "10.10.10.25", "scope": "Authorized"},
+        json={"name": "Test session", "target": "10.10.10.25", "scope": "Authorized",
+              "authorization": {"reference": "Authorized", "target": "10.10.10.25", "allowed_plugins": ["service-inventory", "tls-review", "http-header-audit"], "expires_at": "2099-01-01T00:00:00Z"}},
         headers=account_headers(account_id),
     )
     return resp.json()["id"]

@@ -35,7 +35,7 @@ def test_heartbeat_succeeds_with_valid_credential(client, dynamodb_table):
     )
 
     assert resp.status_code == 200
-    assert resp.json()["min_supported_version"] == "0.1.0"
+    assert resp.json()["min_supported_version"] == "0.2.0"
 
 
 def test_heartbeat_updates_the_collector_item(client, dynamodb_table):

@@ -71,6 +71,18 @@ def observation_sk(session_id: str, observation_id: str) -> str:
     return f"OBS#{session_id}#{observation_id}"
 
 
+def query_all(table, **kwargs) -> list[dict]:
+    """Follow DynamoDB pages even when a filter produces an empty page."""
+    items = []
+    while True:
+        response = table.query(**kwargs)
+        items.extend(response.get("Items", []))
+        cursor = response.get("LastEvaluatedKey")
+        if not cursor:
+            return items
+        kwargs["ExclusiveStartKey"] = cursor
+
+
 def gsi1_session_pk(session_id: str) -> str:
     return f"SESSION#{session_id}"
 
